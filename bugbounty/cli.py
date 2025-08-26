@@ -249,7 +249,7 @@ def status(
             try:
                 task_logs_dir = target_dir / "logs" / "tareas"
                 if task_logs_dir.exists():
-                    log_files = list(task_logs_dir.glob("*.log"))
+                    log_files = [f for f in task_logs_dir.glob("*.log")]
                     if log_files:
                         console.print(f"\n📋 Found {len(log_files)} task logs:")
                         for log_file in sorted(log_files):

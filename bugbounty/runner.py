@@ -128,7 +128,7 @@ class TaskRunner:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         
         logger = logging.getLogger(f"runner_{self.target}")
-        logger.setLevel(logging.INFO)
+        logger.setLevel(logging.DEBUG)
         
         # Remove existing handlers
         for handler in logger.handlers[:]:
@@ -189,6 +189,11 @@ class TaskRunner:
                 self.tasks[task_name] = task
             
             self.logger.info(f"Loaded {len(self.tasks)} tasks from {tasks_file}")
+            
+            # Debug: log all loaded tasks and their dependencies
+            for task_name, task in self.tasks.items():
+                self.logger.debug(f"Task '{task_name}': needs={task.needs}")
+            
             return True
             
         except Exception as e:
@@ -345,6 +350,13 @@ class TaskRunner:
                         task.is_ready(completed_tasks) and
                         task_name not in running_tasks):
                         ready_tasks.append(task)
+                    elif task.status == TaskStatus.PENDING:
+                        # Debug: log why task is not ready
+                        missing_deps = [dep for dep in task.needs if dep not in completed_tasks]
+                        if missing_deps:
+                            self.logger.debug(f"Task {task_name} waiting for dependencies: {missing_deps}")
+                        elif task_name in running_tasks:
+                            self.logger.debug(f"Task {task_name} already running")
                 
                 # Start ready tasks (up to concurrency limit)
                 available_slots = self.concurrency - len(running_tasks)
