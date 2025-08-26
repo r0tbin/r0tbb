@@ -22,8 +22,17 @@ class Database:
     
     def init_db(self):
         """Initialize database tables if they don't exist."""
-        with self.get_connection() as conn:
-            conn.executescript("""
+        # Set SQLite to single-threaded mode to avoid locks
+        conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        # Critical: Set to DELETE journal mode before any operations
+        conn.execute("PRAGMA journal_mode=DELETE")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA temp_store=MEMORY")
+        conn.execute("PRAGMA cache_size=10000")
+        conn.execute("PRAGMA locking_mode=NORMAL")
+        
+        conn.executescript("""
                 CREATE TABLE IF NOT EXISTS runs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     target TEXT NOT NULL,
@@ -68,17 +77,20 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id);
                 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
             """)
+        conn.commit()
+        conn.close()
     
     @contextmanager
     def get_connection(self):
         """Get a database connection with automatic commit/rollback."""
-        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         # Configure SQLite to avoid locks
         conn.execute("PRAGMA journal_mode=DELETE")
         conn.execute("PRAGMA synchronous=NORMAL") 
         conn.execute("PRAGMA temp_store=MEMORY")
         conn.execute("PRAGMA cache_size=10000")
+        conn.execute("PRAGMA locking_mode=NORMAL")
         try:
             yield conn
             conn.commit()
