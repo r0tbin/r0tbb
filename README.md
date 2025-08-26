@@ -32,27 +32,27 @@
 
 4. **Initialize a target:**
    ```bash
-   python -m bugbounty.cli init example.com
+   r0tbb init example.com
    ```
 
 5. **Run the pipeline:**
    ```bash
-   python -m bugbounty.cli run example.com
+   r0tbb run example.com
    ```
 
 6. **Start Telegram bot:**
    ```bash
-   python -m bugbounty.cli bot
+   r0tbb bot
    ```
 
 ## CLI Commands
 
-- `init <target>` - Create target structure and copy sample tasks
-- `run <target>` - Execute the pipeline for a target
-- `status <target>` - Show current progress
-- `summarize <target>` - Generate analysis reports
-- `zip <target>` - Create results archive
-- `bot` - Start Telegram bot server
+- `r0tbb init <target>` - Create target structure and copy sample tasks
+- `r0tbb run <target>` - Execute the pipeline for a target
+- `r0tbb status <target>` - Show current progress
+- `r0tbb summarize <target>` - Generate analysis reports
+- `r0tbb zip <target>` - Create results archive
+- `r0tbb bot` - Start Telegram bot server
 
 ## Telegram Commands
 

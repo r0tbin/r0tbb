@@ -47,6 +47,7 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
+            "r0tbb=bugbounty.cli:main",
             "bb=bugbounty.cli:main",
             "bugbounty=bugbounty.cli:main",
             "bugbounty-bot=bugbounty.telegram_bot:main",

@@ -122,7 +122,7 @@ MAX_LOG_SIZE=50MB
 ### Verificar instalación
 ```bash
 # Verificar comando principal
-bb --help
+r0tbb --help
 
 # Verificar herramientas externas
 ./scripts/postinstall.sh
@@ -137,7 +137,7 @@ bb list
 mkdir -p bug-bounty
 
 # Inicializar target de prueba
-bb init ejemplo.com
+r0tbb init ejemplo.com
 
 # Verificar estructura creada
 ls -la bug-bounty/ejemplo.com/
@@ -146,21 +146,21 @@ ls -la bug-bounty/ejemplo.com/
 nano bug-bounty/ejemplo.com/tasks.yaml
 
 # Ejecutar pipeline de prueba
-bb run ejemplo.com
+r0tbb run ejemplo.com
 
 # Verificar resultados
-bb status ejemplo.com
-bb summarize ejemplo.com
+r0tbb status ejemplo.com
+r0tbb summarize ejemplo.com
 ```
 
 ## 🤖 Iniciar Bot de Telegram
 
 ```bash
 # En una terminal separada o tmux/screen
-bb bot
+r0tbb bot
 
 # O ejecutar en background
-nohup bb bot > bot.log 2>&1 &
+nohup r0tbb bot > bot.log 2>&1 &
 ```
 
 ### Comandos del bot:
@@ -197,7 +197,7 @@ Después de la instalación tendrás:
 ### Comando `bb` no encontrado
 ```bash
 # Verificar que esté en PATH
-which bb
+which r0tbb
 
 # Si no está, verificar instalación
 pip show bugbounty-tool
@@ -232,29 +232,29 @@ grep -E "BOT_TOKEN|CHAT_ID" .env
 curl "https://api.telegram.org/bot<TU_TOKEN>/getMe"
 
 # Ver logs del bot
-bb bot
+r0tbb bot
 ```
 
 ## 🎯 Workflow típico
 
 ```bash
 # 1. Inicializar nuevo target
-bb init target.com
+r0tbb init target.com
 
 # 2. Personalizar pipeline (opcional)
 nano bug-bounty/target.com/tasks.yaml
 
 # 3. Ejecutar pipeline
-bb run target.com
+r0tbb run target.com
 
 # 4. Monitorear progreso (desde Telegram o CLI)
-bb status target.com
+r0tbb status target.com
 
 # 5. Ver resultados
-bb summarize target.com
+r0tbb summarize target.com
 
 # 6. Descargar archive
-bb zip target.com
+r0tbb zip target.com
 ```
 
 ## 📱 Control remoto vía Telegram
