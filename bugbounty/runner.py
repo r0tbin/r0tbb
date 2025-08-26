@@ -329,9 +329,10 @@ class TaskRunner:
     
     def _execute_pipeline(self) -> bool:
         """Execute the task pipeline with dependency resolution."""
-        completed_tasks = set()
+        # Use instance variables for state consistency
+        completed_tasks = self.completed_tasks
         running_tasks = {}
-        failed_tasks = set()
+        failed_tasks = self.failed_tasks
         
         self.executor = ThreadPoolExecutor(max_workers=self.concurrency)
         
