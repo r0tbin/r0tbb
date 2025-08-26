@@ -50,8 +50,8 @@ source venv/bin/activate
 # Upgrade pip
 python -m pip install --upgrade pip
 
-# Install requirements
-pip install -r requirements.txt
+# Install requirements with force reinstall for conflicting packages
+pip install -r requirements.txt --force-reinstall --no-deps python-telegram-bot
 
 # Install the package
 pip install -e .
