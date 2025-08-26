@@ -55,10 +55,21 @@ class Task:
 class TaskRunner:
     """Main task runner class."""
     
-    def __init__(self, target: str, notifier: Optional[TelegramNotifier] = None):
+    def __init__(self, target: str, notifier: Optional[TelegramNotifier] = None, use_database: bool = True):
         self.target = target
         self.target_dir = config.target_dir(target)
-        self.db = init_db(config.run_db_path(target))
+        self.use_database = use_database
+        
+        # Database (optional)
+        self.db = None
+        if self.use_database:
+            try:
+                self.db = init_db(config.run_db_path(target))
+            except Exception as e:
+                console.print(f"[yellow]⚠️ Database initialization failed: {e}[/yellow]")
+                console.print("[blue]ℹ️ Continuing without database (logs only mode)[/blue]")
+                self.use_database = False
+        
         self.notifier = notifier
         self.run_id = None
         self.tasks = {}
@@ -68,6 +79,46 @@ class TaskRunner:
         self.stop_event = threading.Event()
         self.db_lock = threading.Lock()  # Lock for database access
         self.logger = self._setup_logging()
+        
+        # File-based state tracking (for non-database mode)
+        self.completed_tasks: Set[str] = set()
+        self.failed_tasks: Set[str] = set()
+        self.running_tasks: Set[str] = set()
+        self.start_time = None
+    
+    def _safe_db_call(self, operation: str, *args, **kwargs):
+        """Safely call database operations, fallback to file-based tracking."""
+        if self.use_database and self.db:
+            try:
+                with self.db_lock:
+                    method = getattr(self.db, operation)
+                    return method(*args, **kwargs)
+            except Exception as e:
+                self.logger.warning(f"Database operation '{operation}' failed: {e}")
+                self.use_database = False
+        return None
+    
+    def _log_file_event(self, level: str, message: str, task_name: str = "", metadata: dict = None):
+        """Log events to file when database is not available."""
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "level": level,
+            "message": message,
+            "task_name": task_name,
+            "metadata": metadata or {}
+        }
+        
+        # Log to runner log
+        log_msg = f"[{level}] {message}"
+        if task_name:
+            log_msg = f"[{task_name}] {log_msg}"
+        
+        if level == "ERROR":
+            self.logger.error(log_msg)
+        elif level == "WARNING":
+            self.logger.warning(log_msg)
+        else:
+            self.logger.info(log_msg)
     
     def _setup_logging(self):
         """Setup logging for the runner."""
@@ -223,11 +274,16 @@ class TaskRunner:
                 self.tasks = filtered_tasks
             
             # Start run
-            self.run_id = self.db.start_run(
-                self.target, 
-                len(self.tasks),
-                {"concurrency": self.concurrency, "task_filter": task_filter}
-            )
+            if self.use_database:
+                self.run_id = self._safe_db_call(
+                    "start_run",
+                    self.target, 
+                    len(self.tasks),
+                    {"concurrency": self.concurrency, "task_filter": task_filter}
+                )
+            else:
+                self.run_id = 1  # Simple counter for non-database mode
+                self.start_time = datetime.now()
             
             self.logger.info(f"Starting run {self.run_id} for target {self.target}")
             self._update_progress()
@@ -244,7 +300,8 @@ class TaskRunner:
             
             # End run
             final_status = RunStatus.DONE if success else RunStatus.ERROR
-            self.db.end_run(self.run_id, final_status)
+            if self.use_database:
+                self._safe_db_call("end_run", self.run_id, final_status)
             
             self.logger.info(f"Run {self.run_id} completed with status: {final_status.value}")
             self._update_progress()
@@ -261,8 +318,8 @@ class TaskRunner:
             
         except Exception as e:
             self.logger.error(f"Run failed with exception: {e}")
-            if self.run_id:
-                self.db.end_run(self.run_id, RunStatus.ERROR, {"error": str(e)})
+            if self.run_id and self.use_database:
+                self._safe_db_call("end_run", self.run_id, RunStatus.ERROR, {"error": str(e)})
             return False
     
     def _execute_pipeline(self) -> bool:
@@ -354,15 +411,20 @@ class TaskRunner:
         """
         task.start_time = datetime.now(timezone.utc)
         
-        # Start task in database
-        task.task_id = self.db.start_task(
-            self.run_id,
-            task.name,
-            task.description,
-            task.cmd,
-            task.timeout,
-            task.metadata
-        )
+        # Start task in database (if available)
+        if self.use_database:
+            task.task_id = self._safe_db_call(
+                "start_task",
+                self.run_id,
+                task.name,
+                task.description,
+                task.cmd,
+                task.timeout,
+                task.metadata
+            )
+        else:
+            self.running_tasks.add(task.name)
+            self._log_file_event("INFO", f"Starting task: {task.description}", task.name)
         
         try:
             if task.is_internal():
@@ -372,7 +434,12 @@ class TaskRunner:
         
         except Exception as e:
             self.logger.error(f"Task {task.name} failed with exception: {e}")
-            self.db.end_task(task.task_id, TaskStatus.ERROR, metadata={"error": str(e)})
+            if self.use_database and task.task_id:
+                self._safe_db_call("end_task", task.task_id, TaskStatus.ERROR, metadata={"error": str(e)})
+            else:
+                self.running_tasks.discard(task.name)
+                self.failed_tasks.add(task.name)
+                self._log_file_event("ERROR", f"Task failed: {e}", task.name)
             return False
         
         finally:
@@ -425,27 +492,47 @@ class TaskRunner:
                     return_code = process.wait(timeout=timeout)
                     task.return_code = return_code
                     
-                    # Update database
+                    # Update database and state
                     status = TaskStatus.DONE if return_code == 0 else TaskStatus.ERROR
-                    self.db.end_task(
-                        task.task_id,
-                        status,
-                        return_code,
-                        str(stdout_path),
-                        str(stderr_path)
-                    )
+                    if self.use_database and task.task_id:
+                        self._safe_db_call(
+                            "end_task",
+                            task.task_id,
+                            status,
+                            return_code,
+                            str(stdout_path),
+                            str(stderr_path)
+                        )
+                    else:
+                        self.running_tasks.discard(task.name)
+                        if return_code == 0:
+                            self.completed_tasks.add(task.name)
+                            self._log_file_event("INFO", f"Task completed successfully", task.name)
+                        else:
+                            self.failed_tasks.add(task.name)
+                            self._log_file_event("ERROR", f"Task failed with exit code {return_code}", task.name)
                     
                     return return_code == 0
                 
                 except subprocess.TimeoutExpired:
                     self.logger.warning(f"Task {task.name} timed out after {timeout} seconds")
                     self._kill_process_tree(process)
-                    self.db.end_task(task.task_id, TaskStatus.ERROR, -1, str(stdout_path), str(stderr_path))
+                    if self.use_database and task.task_id:
+                        self._safe_db_call("end_task", task.task_id, TaskStatus.ERROR, -1, str(stdout_path), str(stderr_path))
+                    else:
+                        self.running_tasks.discard(task.name)
+                        self.failed_tasks.add(task.name)
+                        self._log_file_event("ERROR", f"Task timed out after {timeout} seconds", task.name)
                     return False
         
         except Exception as e:
             self.logger.error(f"Error executing task {task.name}: {e}")
-            self.db.end_task(task.task_id, TaskStatus.ERROR, metadata={"error": str(e)})
+            if self.use_database and task.task_id:
+                self._safe_db_call("end_task", task.task_id, TaskStatus.ERROR, metadata={"error": str(e)})
+            else:
+                self.running_tasks.discard(task.name)
+                self.failed_tasks.add(task.name)
+                self._log_file_event("ERROR", f"Task execution error: {e}", task.name)
             return False
     
     def _execute_internal_task(self, task: Task) -> bool:
@@ -462,12 +549,22 @@ class TaskRunner:
                 if self.notifier:
                     self.notifier.send_text(f"📊 Task notification from {self.target}")
             
-            self.db.end_task(task.task_id, TaskStatus.DONE)
+            if self.use_database and task.task_id:
+                self._safe_db_call("end_task", task.task_id, TaskStatus.DONE)
+            else:
+                self.running_tasks.discard(task.name)
+                self.completed_tasks.add(task.name)
+                self._log_file_event("INFO", f"Internal task completed successfully", task.name)
             return True
         
         except Exception as e:
             self.logger.error(f"Internal task {task.name} failed: {e}")
-            self.db.end_task(task.task_id, TaskStatus.ERROR, metadata={"error": str(e)})
+            if self.use_database and task.task_id:
+                self._safe_db_call("end_task", task.task_id, TaskStatus.ERROR, metadata={"error": str(e)})
+            else:
+                self.running_tasks.discard(task.name)
+                self.failed_tasks.add(task.name)
+                self._log_file_event("ERROR", f"Internal task failed: {e}", task.name)
             return False
     
     def _kill_process_tree(self, process):
@@ -496,34 +593,55 @@ class TaskRunner:
             if task.process:
                 self._kill_process_tree(task.process)
             task.status = TaskStatus.CANCELLED
-            if task.task_id:
-                self.db.end_task(task.task_id, TaskStatus.CANCELLED)
+            if self.use_database and task.task_id:
+                self._safe_db_call("end_task", task.task_id, TaskStatus.CANCELLED)
+            else:
+                self.running_tasks.discard(task.name)
+                self._log_file_event("WARNING", f"Task cancelled", task.name)
     
     def _update_progress(self):
         """Update progress.json file."""
-        if not self.run_id:
-            return
+        # Get run info from database or fallback to file-based tracking
+        run_info = None
+        if self.use_database and self.db and self.run_id:
+            run_info = self._safe_db_call("get_run", self.run_id)
         
-        with self.db_lock:
-            run_info = self.db.get_run(self.run_id)
-            if not run_info:
-                return
+        # Count completed tasks
+        if self.use_database and self.tasks:
+            completed = sum(1 for t in self.tasks.values() if t.status == TaskStatus.DONE)
+        else:
+            completed = len(self.completed_tasks)
         
-        completed = sum(1 for t in self.tasks.values() if t.status == TaskStatus.DONE)
-        total = len(self.tasks)
+        total = len(self.tasks) if self.tasks else 0
         
         # Find current running task
         current_task = None
-        for task in self.tasks.values():
-            if task.status == TaskStatus.RUNNING:
-                current_task = task.name
-                break
+        if self.use_database and self.tasks:
+            for task in self.tasks.values():
+                if task.status == TaskStatus.RUNNING:
+                    current_task = task.name
+                    break
+        else:
+            current_task = list(self.running_tasks)[0] if self.running_tasks else None
         
         # Calculate ETA
         eta_seconds = None
-        if run_info['start_ts'] and completed > 0:
-            start_time = datetime.fromisoformat(run_info['start_ts'].replace('Z', '+00:00'))
-            elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+        start_time_str = None
+        status = "running"
+        
+        if run_info:
+            start_time_str = run_info['start_ts']
+            status = run_info['status']
+            if start_time_str and completed > 0:
+                start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+                elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+                if elapsed > 0:
+                    rate = completed / elapsed
+                    remaining = total - completed
+                    eta_seconds = int(remaining / rate) if rate > 0 and remaining > 0 else None
+        elif self.start_time and completed > 0:
+            start_time_str = self.start_time.isoformat()
+            elapsed = (datetime.now() - self.start_time).total_seconds()
             if elapsed > 0:
                 rate = completed / elapsed
                 remaining = total - completed
@@ -531,9 +649,9 @@ class TaskRunner:
         
         progress_data = {
             "target": self.target,
-            "run_id": self.run_id,
-            "started": run_info['start_ts'],
-            "status": run_info['status'],
+            "run_id": self.run_id or 0,
+            "started": start_time_str,
+            "status": status,
             "total": total,
             "done": completed,
             "current_task": current_task,

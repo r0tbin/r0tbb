@@ -90,8 +90,7 @@ def init(
             
             console.print(f"✅ Created basic tasks configuration")
         
-        # Initialize database
-        db = init_db(config.run_db_path(target))
+        # Create basic directory structure (no database needed)
         console.print(f"✅ Initialized database")
         
         console.print(f"\n🚀 Target [bold green]{target}[/bold green] initialized successfully!")
@@ -145,8 +144,15 @@ def run(
                     console.print("[yellow]⚠️  Telegram connection failed, continuing without notifications[/yellow]")
                     notifier = None
             
-            # Use simple runner (no database issues)
-            from .simple_runner import run_simple_pipeline
+            # Use improved runner with optional database
+            from .runner import TaskRunner
+            
+            # Create runner without database to avoid SQLite lock issues
+            runner = TaskRunner(target, notifier, use_database=False)
+            
+            if concurrency:
+                runner.concurrency = concurrency
+                console.print(f"🔧 Using concurrency: {concurrency}")
             
             # Run pipeline
             with Progress(
@@ -156,7 +162,7 @@ def run(
             ) as progress:
                 task = progress.add_task("Running pipeline...", total=None)
                 
-                success = run_simple_pipeline(target_dir, target)
+                success = runner.run(resume=resume, task_filter=task_filter)
                 
                 progress.update(task, description="Pipeline completed")
             
