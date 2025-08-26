@@ -27,7 +27,7 @@ pipeline:
     cmd: |
       httpx -list {OUT}/outputs/recon/subfinder.txt \
         -cl -sc -title -td -server -method -websocket -cdn -json \
-        -o {OUT}/outputs/web/httpx.json
+        > {OUT}/outputs/web/httpx.json
     timeout: 1800
 
   # Live subdomain list
