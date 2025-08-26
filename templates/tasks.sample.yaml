@@ -115,25 +115,13 @@ pipeline:
   - name: secretfinder
     desc: "Secret extraction from JS files"
     needs: [katana]
-    cmd: |
-      grep '\.js$' {OUT}/outputs/endpoints/katana.txt | head -100 | \
-      while read jsurl; do \
-        curl -s "$jsurl" | python3 -c "
-import sys, re
-content = sys.stdin.read()
-patterns = [
-    r'[aA]pi[_-]?[kK]ey[\\s]*[:=][\\s]*[\\'\\\"][0-9a-zA-Z]{32,45}[\\'\\\"]',
-    r'[sS]ecret[\\s]*[:=][\\s]*[\\'\\\"][0-9a-zA-Z]{32,45}[\\'\\\"]',
-    r'[tT]oken[\\s]*[:=][\\s]*[\\'\\\"][0-9a-zA-Z]{32,45}[\\'\\\"]',
-    r'AKIA[0-9A-Z]{16}',
-    r'AIza[0-9A-Za-z\\-_]{35}'
-]
-for pattern in patterns:
-    matches = re.findall(pattern, content)
-    for match in matches:
-        print(f'$jsurl: {match}')
-" >> {OUT}/outputs/artifacts/secrets.txt || true; \
-      done
+    cmd: >
+      grep '\.js$' {OUT}/outputs/endpoints/katana.txt | head -100 | 
+      while read jsurl; do
+        echo "Scanning: $jsurl";
+        curl -s "$jsurl" | grep -oE '(api[_-]?key|secret|token|password)[[:space:]]*[:=][[:space:]]*['\''""][A-Za-z0-9]{10,}['\''""]' >> {OUT}/outputs/artifacts/secrets_raw.txt || true;
+      done && 
+      sort -u {OUT}/outputs/artifacts/secrets_raw.txt > {OUT}/outputs/artifacts/secrets.txt
     timeout: 1800
 
   # Generate summary report
