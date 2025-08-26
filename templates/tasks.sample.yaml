@@ -1,0 +1,180 @@
+version: 1
+concurrency: 2
+
+# Environment variables for this target
+env:
+  HTTPX_MAX_HOSTS: "150"
+  SUBFINDER_MAX_TIME: "30m"
+
+# Template variables
+vars:
+  TARGET: "example.com"  # Will be overridden by CLI argument
+  ROOT: "{ROOT}"         # Project root directory
+  OUT: "{OUT}"           # Target output directory
+
+# Pipeline definition with dependencies
+pipeline:
+  # Subdomain enumeration
+  - name: subfinder
+    desc: "Subdomain enumeration with subfinder"
+    cmd: |
+      subfinder -d {TARGET} -all -recursive -silent \
+        -o {OUT}/outputs/recon/subfinder.txt
+    timeout: 1800
+
+  # Web discovery and probing
+  - name: httpx
+    desc: "HTTP probing with httpx"
+    needs: [subfinder]
+    cmd: |
+      httpx -l {OUT}/outputs/recon/subfinder.txt \
+        -cl -sc -title -td -server -method -websocket -cdn -json \
+        -o {OUT}/outputs/web/httpx.json
+    timeout: 1800
+
+  # Live subdomain list
+  - name: httpx_domains
+    desc: "Extract live domains from httpx results"
+    needs: [httpx]
+    cmd: |
+      cat {OUT}/outputs/web/httpx.json | jq -r '.url' | sed 's|https\?://||' | sed 's|/.*||' | sort -u > {OUT}/outputs/web/live_domains.txt
+    timeout: 300
+
+  # Directory and endpoint discovery
+  - name: katana
+    desc: "Crawling and endpoint discovery with katana"
+    needs: [httpx_domains]
+    cmd: |
+      katana -list {OUT}/outputs/web/live_domains.txt \
+        -d 5 -ps -pss waybackarchive,commoncrawl,alienvault \
+        -jc -kf -aff -fx -ef png,jpg,jpeg,gif,svg,ico,css,woff,woff2,ttf \
+        -o {OUT}/outputs/endpoints/katana.txt
+    timeout: 3600
+
+  # Parameter discovery
+  - name: paramspider
+    desc: "Parameter discovery with paramspider"
+    needs: [httpx_domains]
+    cmd: |
+      cd {OUT}/outputs/endpoints/ && \
+      cat ../web/live_domains.txt | while read domain; do \
+        paramspider -d "$domain" --exclude png,jpg,jpeg,gif,svg,ico,css,js,woff,woff2,ttf --level high -o paramspider_"$domain".txt || true; \
+      done
+    timeout: 2400
+
+  # Web technology detection
+  - name: webanalyze
+    desc: "Technology detection with webanalyze"
+    needs: [httpx]
+    cmd: |
+      cat {OUT}/outputs/web/httpx.json | jq -r '.url' | \
+      webanalyze -batch -output json > {OUT}/outputs/web/technologies.json
+    timeout: 1200
+
+  # Take screenshots
+  - name: gowitness
+    desc: "Screenshot capture with gowitness"
+    needs: [httpx]
+    cmd: |
+      cat {OUT}/outputs/web/httpx.json | jq -r '.url' | \
+      gowitness file -f - --screenshot-path {OUT}/outputs/web/screenshots
+    timeout: 1800
+
+  # Port scanning on live hosts
+  - name: naabu
+    desc: "Port scanning with naabu"
+    needs: [httpx_domains]
+    cmd: |
+      naabu -list {OUT}/outputs/web/live_domains.txt \
+        -top-ports 1000 -c 50 -rate 1000 \
+        -o {OUT}/outputs/scans/naabu_ports.txt
+    timeout: 1800
+
+  # Nuclei vulnerability scanning
+  - name: nuclei
+    desc: "Vulnerability scanning with nuclei"
+    needs: [httpx]
+    cmd: |
+      cat {OUT}/outputs/web/httpx.json | jq -r '.url' | \
+      nuclei -list - -t cves/ -t vulnerabilities/ -t exposures/ \
+        -severity critical,high,medium -json \
+        -o {OUT}/outputs/scans/nuclei.json
+    timeout: 3600
+
+  # DNS enumeration
+  - name: dnsx
+    desc: "DNS resolution and enumeration"
+    needs: [subfinder]
+    cmd: |
+      dnsx -list {OUT}/outputs/recon/subfinder.txt \
+        -a -aaaa -cname -mx -ns -txt -srv -ptr -soa \
+        -json -o {OUT}/outputs/recon/dnsx.json
+    timeout: 1200
+
+  # Extract secrets from JavaScript files
+  - name: secretfinder
+    desc: "Secret extraction from JS files"
+    needs: [katana]
+    cmd: |
+      grep '\.js$' {OUT}/outputs/endpoints/katana.txt | head -100 | \
+      while read jsurl; do \
+        curl -s "$jsurl" | python3 -c "
+import sys, re
+content = sys.stdin.read()
+patterns = [
+    r'[aA]pi[_-]?[kK]ey[\\s]*[:=][\\s]*[\\'\\\"][0-9a-zA-Z]{32,45}[\\'\\\"]',
+    r'[sS]ecret[\\s]*[:=][\\s]*[\\'\\\"][0-9a-zA-Z]{32,45}[\\'\\\"]',
+    r'[tT]oken[\\s]*[:=][\\s]*[\\'\\\"][0-9a-zA-Z]{32,45}[\\'\\\"]',
+    r'AKIA[0-9A-Z]{16}',
+    r'AIza[0-9A-Za-z\\-_]{35}'
+]
+for pattern in patterns:
+    matches = re.findall(pattern, content)
+    for match in matches:
+        print(f'$jsurl: {match}')
+" >> {OUT}/outputs/artifacts/secrets.txt || true; \
+      done
+    timeout: 1800
+
+  # Generate summary report
+  - name: summarize
+    desc: "Generate analysis summary and reports"
+    needs: [nuclei, secretfinder, dnsx]
+    kind: internal:summarize
+
+# Alternative examples for other tools:
+
+# Cloud enumeration example
+# - name: cloud_enum
+#   desc: "Cloud resource enumeration"
+#   needs: [subfinder]
+#   cmd: |
+#     python3 ~/tools/cloud_enum/cloud_enum.py -k {TARGET} \
+#       --quickscan -l {OUT}/outputs/cloud/
+#   timeout: 1200
+
+# S3 bucket discovery example  
+# - name: s3scanner
+#   desc: "S3 bucket discovery"
+#   needs: [subfinder]
+#   cmd: |
+#     cat {OUT}/outputs/recon/subfinder.txt | \
+#     s3scanner scan --bucket-file - \
+#       --output-file {OUT}/outputs/cloud/s3_buckets.txt
+#   timeout: 1800
+
+# Additional subdomain enumeration
+# - name: amass
+#   desc: "Additional subdomain enumeration with amass"
+#   cmd: |
+#     amass enum -passive -d {TARGET} \
+#       -o {OUT}/outputs/recon/amass.txt
+#   timeout: 3600
+
+# GitHub dorking example
+# - name: github_dorks
+#   desc: "GitHub reconnaissance"
+#   cmd: |
+#     python3 ~/tools/github-dorks.py -d {TARGET} \
+#       -o {OUT}/outputs/artifacts/github_dorks.txt
+#   timeout: 1200

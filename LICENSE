@@ -1,0 +1,43 @@
+GNU GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
+
+Copyright (C) 2025 r0tbin
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+========================================================================
+
+Bug Bounty Automation Tool
+Created by r0tbin
+
+A personal terminal-based bug bounty automation tool with Telegram integration.
+This tool is designed for ethical security research and bug bounty hunting.
+
+Features:
+- Target-based execution with isolated workspaces
+- YAML pipeline configuration with dependency management
+- SQLite state persistence with JSON quick-read
+- Telegram bot integration for remote monitoring
+- Heuristic analysis for finding interesting results
+- Concurrent task execution with timeout control
+- Progress tracking with ETA estimation
+
+The tool integrates with popular security tools like subfinder, httpx, katana,
+nuclei, naabu, and others to provide a comprehensive bug bounty workflow.
+
+This software is provided under the GPL-3.0 license to ensure it remains
+open source, non-commercial, and free for everyone in the security community.
+
+For more information, bug reports, or contributions:
+https://github.com/r0tbin/bugbounty-tool
