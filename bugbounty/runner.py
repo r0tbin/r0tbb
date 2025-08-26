@@ -460,8 +460,15 @@ class TaskRunner:
     
     def _execute_shell_task(self, task: Task) -> bool:
         """Execute a shell command task."""
+        # Debug: log variables and original command
+        self.logger.debug(f"Variables for {task.name}: {self.variables}")
+        self.logger.debug(f"Original command: {task.cmd}")
+        
         # Render command
         cmd = render_task_command(task.cmd, self.variables)
+        
+        # Debug: log rendered command
+        self.logger.debug(f"Rendered command: {cmd}")
         
         # Setup log files
         log_dir = config.logs_dir(self.target) / "tareas"
