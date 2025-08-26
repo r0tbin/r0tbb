@@ -66,6 +66,7 @@ class TaskRunner:
         self.concurrency = config.CONCURRENCY
         self.executor = None
         self.stop_event = threading.Event()
+        self.db_lock = threading.Lock()  # Lock for database access
         self.logger = self._setup_logging()
     
     def _setup_logging(self):
@@ -503,9 +504,10 @@ class TaskRunner:
         if not self.run_id:
             return
         
-        run_info = self.db.get_run(self.run_id)
-        if not run_info:
-            return
+        with self.db_lock:
+            run_info = self.db.get_run(self.run_id)
+            if not run_info:
+                return
         
         completed = sum(1 for t in self.tasks.values() if t.status == TaskStatus.DONE)
         total = len(self.tasks)
