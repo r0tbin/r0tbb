@@ -95,7 +95,7 @@ pipeline:
     cmd: |
       cat {OUT}/outputs/web/httpx.json | jq -r '.url' | \
       nuclei -list - -t cves/ -t vulnerabilities/ -t exposures/ \
-        -severity critical,high,medium -json \
+        -severity critical,high,medium \
         -o {OUT}/outputs/scans/nuclei.json
     timeout: 3600
 
