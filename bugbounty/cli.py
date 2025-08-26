@@ -15,8 +15,6 @@ import sys
 import time
 
 from .config import config
-from .db import init_db
-from .runner import TaskRunner
 from .summarizer import Summarizer
 from .telegram_bot import BugBountyBot
 from .notifier import get_notifier, create_notifier
@@ -147,12 +145,8 @@ def run(
                     console.print("[yellow]⚠️  Telegram connection failed, continuing without notifications[/yellow]")
                     notifier = None
             
-            # Create runner
-            runner = TaskRunner(target, notifier)
-            
-            if concurrency:
-                runner.concurrency = concurrency
-                console.print(f"🔧 Using concurrency: {concurrency}")
+            # Use simple runner (no database issues)
+            from .simple_runner import run_simple_pipeline
             
             # Run pipeline
             with Progress(
@@ -162,7 +156,7 @@ def run(
             ) as progress:
                 task = progress.add_task("Running pipeline...", total=None)
                 
-                success = runner.run(resume=resume, task_filter=task_filter)
+                success = run_simple_pipeline(target_dir, target)
                 
                 progress.update(task, description="Pipeline completed")
             
@@ -244,32 +238,23 @@ def status(
         
         print_panel(status_content, title=f"🎯 {target} Status", style="blue")
         
-        # Detailed task status
+        # Detailed task status (simple log-based)
         if detailed:
-            db = init_db(config.run_db_path(target))
-            run_id = progress_data.get('run_id')
-            
-            if run_id:
-                tasks = db.get_run_tasks(run_id)
-                
-                if tasks:
-                    task_data = []
-                    for task in tasks:
-                        duration = ""
-                        if task['start_ts'] and task['end_ts']:
-                            from datetime import datetime
-                            start = datetime.fromisoformat(task['start_ts'].replace('Z', '+00:00'))
-                            end = datetime.fromisoformat(task['end_ts'].replace('Z', '+00:00'))
-                            duration = format_duration((end - start).total_seconds())
-                        
-                        task_data.append({
-                            'Name': task['name'],
-                            'Status': task['status'],
-                            'Duration': duration,
-                            'Return Code': task['return_code'] if task['return_code'] is not None else ''
-                        })
-                    
-                    print_status_table(task_data, "Task Details")
+            try:
+                task_logs_dir = target_dir / "logs" / "tareas"
+                if task_logs_dir.exists():
+                    log_files = list(task_logs_dir.glob("*.log"))
+                    if log_files:
+                        console.print(f"\n📋 Found {len(log_files)} task logs:")
+                        for log_file in sorted(log_files):
+                            task_name = log_file.stem
+                            console.print(f"  • {task_name}: {log_file}")
+                    else:
+                        console.print("\n📋 No detailed task logs found")
+                else:
+                    console.print("\n📋 No task logs directory found")
+            except Exception as e:
+                console.print(f"[yellow]⚠️ Could not read detailed logs: {e}[/yellow]")
     
     except Exception as e:
         console.print(f"[red]❌ Error getting status: {e}[/red]")
