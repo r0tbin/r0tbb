@@ -9,8 +9,6 @@ env:
 # Template variables
 vars:
   TARGET: "example.com"  # Will be overridden by CLI argument
-  ROOT: "{ROOT}"         # Project root directory
-  OUT: "{OUT}"           # Target output directory
 
 # Pipeline definition with dependencies
 pipeline:
