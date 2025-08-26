@@ -72,8 +72,13 @@ class Database:
     @contextmanager
     def get_connection(self):
         """Get a database connection with automatic commit/rollback."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
+        # Configure SQLite to avoid locks
+        conn.execute("PRAGMA journal_mode=DELETE")
+        conn.execute("PRAGMA synchronous=NORMAL") 
+        conn.execute("PRAGMA temp_store=MEMORY")
+        conn.execute("PRAGMA cache_size=10000")
         try:
             yield conn
             conn.commit()
