@@ -63,7 +63,14 @@ def init(
         
         if sample_tasks.exists():
             shutil.copy2(sample_tasks, tasks_file)
+            
+            # Auto-replace TARGET placeholder with actual target
+            content = tasks_file.read_text(encoding='utf-8')
+            content = content.replace('TARGET: "example.com"', f'TARGET: "{target}"')
+            tasks_file.write_text(content, encoding='utf-8')
+            
             console.print(f"✅ Copied sample tasks configuration")
+            console.print(f"🎯 Auto-configured TARGET: [bold cyan]{target}[/bold cyan]")
         else:
             # Create basic tasks.yaml
             basic_tasks = {
