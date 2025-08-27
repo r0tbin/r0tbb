@@ -435,20 +435,37 @@ class BugBountyBot:
             
             self.logger.info("Starting Telegram bot...")
             
+            # Initialize and start the application
+            await self.application.initialize()
+            await self.application.start()
+            
             # Start polling
-            await self.application.run_polling(
+            await self.application.updater.start_polling(
                 allowed_updates=Update.ALL_TYPES,
                 drop_pending_updates=True
             )
+            
+            # Keep running
+            await self.application.updater.idle()
         
         except Exception as e:
             self.logger.error(f"Bot error: {e}")
             raise
+        finally:
+            if self.application:
+                await self.application.stop()
+                await self.application.shutdown()
     
     def run_sync(self):
         """Run the bot synchronously."""
         try:
-            asyncio.run(self.run())
+            # Use new event loop to avoid conflicts
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self.run())
+            finally:
+                loop.close()
         except KeyboardInterrupt:
             self.logger.info("Bot stopped by user")
         except Exception as e:
