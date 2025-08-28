@@ -39,10 +39,69 @@ pipeline:
       cat {OUT}/outputs/recon/alive_subdomains.txt | katana -depth 3 -rl 2 | grep -e .js | httpx -nc 200 >> {OUT}/outputs/endpoints/alive_jsfile.txt
     timeout: 2400
 
-  # Step 4: Nuclei scanning for tokens and exposures
+  # Step 4: JS Route extraction
+  - name: js_route_extraction
+    desc: "Extract routes and endpoints from JavaScript files"
+    needs: [js_discovery]
+    cmd: |
+      echo "🔍 JS Route Extraction - Do you want to add a custom User-Agent header?"
+      echo "Press Enter for default (no custom header) or type your custom User-Agent:"
+      echo "Example: Mozilla/5.0 (compatible; PentestReconBot/1.0; +https://openbash.com)"
+      printf "User-Agent (30s timeout): "
+      
+      # Use timeout command for better compatibility
+      if command -v timeout >/dev/null 2>&1; then
+        custom_header=$(timeout 30s bash -c 'read -r input; echo "$input"' 2>/dev/null || echo "")
+      else
+        # Fallback for systems without timeout command
+        read -t 30 custom_header 2>/dev/null || custom_header=""
+      fi
+      
+      # Clear/create the output file
+      > {OUT}/outputs/endpoints/rutas_con_origen.txt
+      
+      if [ -z "$custom_header" ]; then
+        echo "✅ Using default request (no custom User-Agent)"
+        while read -r jsfile; do
+          [ -z "$jsfile" ] && continue
+          echo "Processing: $jsfile"
+          
+          # Download JS file and extract routes
+          curl -s --max-time 15 "$jsfile" \
+          | grep -ohE "\"/[a-zA-Z0-9_/?=&%.\-:]*\"" \
+          | sed -e 's/^"//' -e 's/"$//' \
+          | sort -u \
+          | awk -v file="$jsfile" '{if($0 != "") printf "%-50s %s\n", $0, file}' \
+          >> {OUT}/outputs/endpoints/rutas_con_origen.txt
+          
+          sleep 2
+        done < {OUT}/outputs/endpoints/alive_jsfile.txt
+      else
+        echo "✅ Using custom User-Agent: $custom_header"
+        while read -r jsfile; do
+          [ -z "$jsfile" ] && continue
+          echo "Processing: $jsfile"
+          
+          # Download JS file and extract routes
+          curl -s --max-time 15 -A "$custom_header" "$jsfile" \
+          | grep -ohE "\"/[a-zA-Z0-9_/?=&%.\-:]*\"" \
+          | sed -e 's/^"//' -e 's/"$//' \
+          | sort -u \
+          | awk -v file="$jsfile" '{if($0 != "") printf "%-50s %s\n", $0, file}' \
+          >> {OUT}/outputs/endpoints/rutas_con_origen.txt
+          
+          sleep 2
+        done < {OUT}/outputs/endpoints/alive_jsfile.txt
+      fi
+      
+      routes_count=$(wc -l < {OUT}/outputs/endpoints/rutas_con_origen.txt 2>/dev/null || echo "0")
+      echo "🎯 Route extraction completed. Found $routes_count endpoints in rutas_con_origen.txt"
+    timeout: 3600
+
+  # Step 5: Nuclei scanning for tokens and exposures
   - name: nuclei_tokens
     desc: "Nuclei scanning for tokens and exposures in JS files"
-    needs: [js_discovery]
+    needs: [js_route_extraction]
     cmd: |
       nuclei -l {OUT}/outputs/endpoints/alive_jsfile.txt -tags token,exposure -o {OUT}/outputs/scans/nuclei_tokens.json
     timeout: 1800
